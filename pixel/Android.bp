@@ -13,8 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Copyright 2022-2023 NXP
+// Copyright 2022-2023, 2026 NXP
 // *************************************************************************
+
+soong_namespace {
+    //namespace for weaver pixel dir
+    imports: [
+        "hardware/nxp/keymint/pixel",
+    ],
+}
 
 package {
     default_applicable_licenses: ["hardware_nxp_weaver_license"],
@@ -57,7 +64,7 @@ cc_binary {
     ],
 
     local_include_dirs: [
-        "libese_weaver/inc/"
+        "libese_weaver/inc/",
     ],
 
     include_dirs: [
