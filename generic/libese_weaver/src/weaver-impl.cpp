@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- *  Copyright 2020, 2022-2023 NXP
+ *  Copyright 2020, 2022-2023, 2026 NXP
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
  ******************************************************************************/
 
 #define LOG_TAG "weaver-impl"
+#include <stdint.h>
 #include <weaver-impl.h>
 #include <weaver_parser-impl.h>
 #include <weaver_transport-impl.h>
@@ -24,6 +25,19 @@
 
 WeaverImpl *WeaverImpl::s_instance = NULL;
 std::once_flag WeaverImpl::s_instanceFlag;
+
+#define NXP_EN_SN110U 1
+#define NXP_EN_SN100U 1
+#define NXP_EN_SN220U 1
+#define NXP_EN_PN557 1
+#define NXP_EN_PN560 1
+#define NXP_EN_SN300U 1
+#define NXP_EN_SN330U 1
+#define NFC_NXP_MW_ANDROID_VER (17U)  /* Android version used by NFC MW */
+#define NFC_NXP_MW_VERSION_MAJ (0x04) /* MW Major Version */
+#define NFC_NXP_MW_VERSION_MIN (0x00) /* MW Minor Version */
+#define NFC_NXP_MW_CUSTOMER_ID (0x00) /* MW Customer Id */
+#define NFC_NXP_MW_RC_VERSION (0x00)  /* MW RC Version */
 
 /**
  * \brief static function to get the singleton instance of WeaverImpl class
@@ -38,11 +52,25 @@ WeaverImpl *WeaverImpl::getInstance() {
   return s_instance;
 }
 
+static void printWeaverVersion() {
+    uint32_t validation = (NXP_EN_SN100U << 13);
+    validation |= (NXP_EN_SN110U << 14);
+    validation |= (NXP_EN_SN220U << 15);
+    validation |= (NXP_EN_PN560 << 16);
+    validation |= (NXP_EN_SN300U << 17);
+    validation |= (NXP_EN_SN330U << 18);
+    validation |= (NXP_EN_PN557 << 11);
+
+    LOG_D(TAG, "Weaver Version: NXP_AR_%02X_%05X_%02d.%02x.%02x", NFC_NXP_MW_CUSTOMER_ID,
+          validation, NFC_NXP_MW_ANDROID_VER, NFC_NXP_MW_VERSION_MAJ, NFC_NXP_MW_VERSION_MIN);
+}
+
 /* Private function to create the instance of self class
  * Same will be used for std::call_once
  */
 void WeaverImpl::createInstance() {
   LOG_D(TAG, "Entry");
+  printWeaverVersion();
   s_instance = new WeaverImpl;
 }
 
@@ -145,23 +173,28 @@ Status_Weaver WeaverImpl::Read(uint32_t slotId, const std::vector<uint8_t> &key,
     status = WEAVER_STATUS_OK;
   }
   if (status == WEAVER_STATUS_OK) {
-    status = mParser->ParseReadInfo(resp, readRespInfo);
-    if (status == WEAVER_STATUS_THROTTLE ||
-        status == WEAVER_STATUS_INCORRECT_KEY) {
-      cmd.clear();
-      resp.clear();
-      if (mParser->FrameGetDataCmd(WeaverParserImpl::sThrottleGetDataP1, (uint8_t)slotId, cmd) &&
-          (mTransport->Send(cmd, resp))) {
-        GetDataRespInfo getDataInfo;
-        if (mParser->ParseGetDataInfo(std::move(resp), getDataInfo) == WEAVER_STATUS_OK) {
-          /* convert timeout from getDataInfo sec to millisecond assign same to read response */
-          readRespInfo.timeout = (getDataInfo.timeout * 1000);
-          if (getDataInfo.timeout > 0) {
-            status = WEAVER_STATUS_THROTTLE;
+      // To check if Applet read response has throttle timeout value
+      bool respHasTimeout = false;
+
+      status = mParser->ParseReadInfo(resp, readRespInfo, &respHasTimeout);
+      if ((status == WEAVER_STATUS_THROTTLE || status == WEAVER_STATUS_INCORRECT_KEY) &&
+          !respHasTimeout) {
+          cmd.clear();
+          resp.clear();
+          if (mParser->FrameGetDataCmd(WeaverParserImpl::sThrottleGetDataP1, (uint8_t)slotId,
+                                       cmd) &&
+              (mTransport->Send(cmd, resp))) {
+              GetDataRespInfo getDataInfo;
+              if (mParser->ParseGetDataInfo(std::move(resp), getDataInfo) == WEAVER_STATUS_OK) {
+                  /* convert timeout from getDataInfo sec to millisecond assign same to read
+                   * response */
+                  readRespInfo.timeout = (getDataInfo.timeout * 1000);
+                  if (getDataInfo.timeout > 0) {
+                      status = WEAVER_STATUS_THROTTLE;
+                  }
+              }
           }
-        }
       }
-    }
   } else {
     LOG_E(TAG, "Failed to perform Read Request for slot (%u)", slotId);
   }
